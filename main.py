@@ -1,77 +1,114 @@
 import streamlit as st
+import sqlite3
 import pandas as pd
-from datetime import datetime
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from datetime import date
 
-# অ্যাপের টাইটেল ও কালার সেটআপ
-st.set_page_config(page_title="Baby Care POS", layout="wide")
+# ---------- Database ----------
+conn = sqlite3.connect("babycare.db", check_same_thread=False)
+c = conn.cursor()
 
-# সিএসএস দিয়ে ডিজাইন সুন্দর করা (Baby Pink & Blue Theme)
+c.execute("""
+CREATE TABLE IF NOT EXISTS products (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    price REAL,
+    age TEXT,
+    stock INTEGER,
+    barcode TEXT
+)
+""")
+
+c.execute("""
+CREATE TABLE IF NOT EXISTS customers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    baby_birthday TEXT
+)
+""")
+conn.commit()
+
+# ---------- UI ----------
+st.set_page_config(page_title="Baby Care POS & Inventory", layout="wide")
+
 st.markdown("""
-    <style>
-    .main { background-color: #FFF5F7; }
-    .stButton>button { background-color: #FFB6C1; color: white; border-radius: 20px; border: none; }
-    .stTextInput>div>div>input { border-radius: 10px; border: 1px solid #ADD8E6; }
-    h1 { color: #FF69B4; font-family: 'SolaimanLipi', sans-serif; }
-    .memo-box { background-color: white; padding: 20px; border: 2px dashed #FFB6C1; border-radius: 10px; }
-    </style>
-    """, unsafe_allow_input_with_html=True)
+<style>
+body {background-color: #fef6fb;}
+h1, h2 {color: #ff69b4;}
+</style>
+""", unsafe_allow_html=True)
 
-st.title("👶 বেবি কেয়ার - বিক্রয় ও মেমো অ্যাপ")
+st.title("🍼 Baby Care POS & Inventory")
 
-# সাইডবার - ইনভেন্টরি বা স্টক এন্ট্রি
-with st.sidebar:
-    st.header("📦 নতুন স্টক যোগ করুন")
-    p_name = st.text_input("পণ্যের নাম")
-    p_price = st.number_input("বিক্রয় মূল্য", min_value=0)
-    p_stock = st.number_input("স্টক পরিমাণ", min_value=0)
-    if st.button("স্টক আপডেট করুন"):
-        st.success(f"{p_name} স্টকে যোগ হয়েছে!")
+menu = st.sidebar.radio(
+    "Menu",
+    ["➕ Add Product", "👶 Add Customer", "🧾 Create Invoice", "📦 Inventory"]
+)
 
-# মেইন সেকশন - বিলিং বা মেমো তৈরি
-st.header("🛒 নতুন মেমো তৈরি করুন")
+# ---------- Add Product ----------
+if menu == "➕ Add Product":
+    st.header("Add New Product")
 
-col1, col2 = st.columns(2)
+    name = st.text_input("Product Name")
+    price = st.number_input("Price", 0.0)
+    age = st.text_input("Age Range (e.g. 0-2 years)")
+    stock = st.number_input("Stock", 0)
+    barcode = st.text_input("Barcode (scan or type)")
 
-with col1:
-    cust_name = st.text_input("ক্রেতার নাম")
-    cust_phone = st.text_input("মোবাইল নম্বর")
-    baby_bday = st.date_input("বাচ্চার জন্মদিন (ঐচ্ছিক)")
+    if st.button("Save Product"):
+        c.execute(
+            "INSERT INTO products (name, price, age, stock, barcode) VALUES (?,?,?,?,?)",
+            (name, price, age, stock, barcode)
+        )
+        conn.commit()
+        st.success("✅ Product Added")
 
-with col2:
-    item_name = st.text_input("পণ্যের নাম (যা বিক্রি হচ্ছে)")
-    item_qty = st.number_input("পরিমাণ", min_value=1, value=1)
-    unit_price = st.number_input("একক মূল্য", min_value=0)
-    discount = st.number_input("ডিসকাউন্ট (টাকা)", min_value=0)
+# ---------- Add Customer ----------
+elif menu == "👶 Add Customer":
+    st.header("Customer Info")
 
-total = (item_qty * unit_price) - discount
+    cname = st.text_input("Customer Name")
+    birthday = st.date_input("Baby Birthday")
 
-# মেমো জেনারেটর
-if st.button("মেমো দেখুন ও প্রিন্ট করুন"):
-    st.markdown("---")
-    st.markdown(f"""
-    <div class="memo-box">
-        <h2 style="text-align: center; color: #FF69B4;">বেবি কেয়ার শপ</h2>
-        <p style="text-align: center;">ঠিকানা: আপনার দোকানের ঠিকানা এখানে</p>
-        <p><strong>তারিখ:</strong> {datetime.now().strftime('%d/%m/%Y')} | <strong>সময়:</strong> {datetime.now().strftime('%H:%M')}</p>
-        <hr>
-        <p><strong>ক্রেতা:</strong> {cust_name}</p>
-        <p><strong>মোবাইল:</strong> {cust_phone}</p>
-        <p><strong>বাচ্চার জন্মদিন:</strong> {baby_bday}</p>
-        <hr>
-        <table style="width:100%">
-            <tr><th>বিবরণ</th><th>পরিমাণ</th><th>দাম</th></tr>
-            <tr><td>{item_name}</td><td>{item_qty}</td><td>{unit_price * item_qty} টাকা</td></tr>
-        </table>
-        <hr>
-        <h3 style="text-align: right;">মোট বিল: {total} টাকা</h3>
-        <p style="text-align: center; font-size: 12px;">পণ্য কেনার ৭ দিনের মধ্যে ক্যাশ মেমোসহ পরিবর্তনের সুযোগ থাকবে।</p>
-        <p style="text-align: center; font-weight: bold;">ধন্যবাদ, আবার আসবেন!</p>
-    </div>
-    """, unsafe_allow_input_with_html=True)
-    
-    st.balloons() # সেলস সাকসেস হলে বেলুন উড়বে
+    if st.button("Save Customer"):
+        c.execute(
+            "INSERT INTO customers (name, baby_birthday) VALUES (?,?)",
+            (cname, birthday)
+        )
+        conn.commit()
+        st.success("✅ Customer Saved")
 
-# আজকের বিক্রয় রিপোর্ট (নিচে ছোট করে)
-st.markdown("---")
-st.subheader("📊 আজকের বিক্রয় রিপোর্ট")
-st.info("অ্যাপটি চালু রাখার পর থেকে এখানে আপনার মোট বিক্রয় জমা হবে।")
+# ---------- Invoice ----------
+elif menu == "🧾 Create Invoice":
+    st.header("Create Invoice")
+
+    products = pd.read_sql("SELECT * FROM products", conn)
+    selected = st.selectbox("Select Product", products["name"])
+
+    qty = st.number_input("Quantity", 1)
+
+    if st.button("Generate Invoice"):
+        product = products[products["name"] == selected].iloc[0]
+        total = product["price"] * qty
+
+        file_name = f"invoice_{selected}.pdf"
+        pdf = canvas.Canvas(file_name, pagesize=A4)
+
+        pdf.setFont("Helvetica-Bold", 18)
+        pdf.drawString(50, 800, "Baby Care Invoice")
+
+        pdf.setFont("Helvetica", 12)
+        pdf.drawString(50, 760, f"Product: {selected}")
+        pdf.drawString(50, 740, f"Price: {product['price']} x {qty}")
+        pdf.drawString(50, 720, f"Total: {total} BDT")
+        pdf.drawString(50, 700, f"Date: {date.today()}")
+
+        pdf.save()
+        st.success(f"📄 Invoice Created: {file_name}")
+
+# ---------- Inventory ----------
+elif menu == "📦 Inventory":
+    st.header("Inventory List")
+    df = pd.read_sql("SELECT name, price, age, stock FROM products", conn)
+    st.dataframe(df)
